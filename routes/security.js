@@ -3,6 +3,10 @@ const router = express.Router();
 const {dynamodb} = require('../config/db')
 const { v4: uuidv4 } = require('uuid');
 const mqtt = require('mqtt');
+const axios = require('axios');
+
+const FAST2SMS_API_KEY = 'SDWawcVxsM4Bjdy5pYE1l7gLeAT8JCnNFt2ihKbGRQ6UqofXHzv8DhpfJXyxIintbEWB6QkowAz9CYgK';
+const FAST2SMS_URL = 'https://www.fast2sms.com/dev/bulkV2';
 
 
 const mqttClient = mqtt.connect({
@@ -15,20 +19,33 @@ const mqttClient = mqtt.connect({
   rejectUnauthorized: true, 
 });
 
-// mqttClient.on('connect', () => {
-//   console.log('Connected to HiveMQ Cloud');
-// });
+async function cleanupOTPs() {
+  try {
+    // Get all OTP records
+    const result = await dynamodb.scan({
+      TableName: "OTPVerification"
+    }).promise();
 
-// mqttClient.on('error', (error) => {
-//   console.error('Error connecting to HiveMQ Cloud:', error);
-// });
+    const now = new Date();
+    
+    // Delete expired or verified OTPs
+    for (const item of result.Items) {
+      if (new Date(item.expiryTime) < now || item.verified) {
+        await dynamodb.delete({
+          TableName: "OTPVerification",
+          Key: { phoneNumber: item.phoneNumber }
+        }).promise();
+      }
+    }
+  } catch (error) {
+    console.error("Error cleaning up OTPs:", error);
+  }
+}
 
-// mqttClient.on('close', () => {
-//   console.log('MQTT connection closed');
-// });
+setInterval(cleanupOTPs, 60 * 60 * 1000);
 
 router.post('/signup', async (req, res) => {
-  const { name, phoneNumber, communityId, currentLatitude, currentLongitude } = req.body;
+  const {  phoneNumber } = req.body;
 
   try {
     // Check if phone number already exists
@@ -44,7 +61,51 @@ router.post('/signup', async (req, res) => {
     if (existingUser.Items.length > 0) {
       return res.status(400).json({ error: 'Phone number already registered' });
     }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiryTime = new Date(Date.now() + 5 * 60000).toISOString(); // 5 minutes expiry
 
+    await dynamodb.put({
+      TableName: "OTPVerification",
+      Item: { phoneNumber, otp, expiryTime, verified: false, createdAt: new Date().toISOString() },
+    }).promise();
+
+    const response = await axios.post(FAST2SMS_URL, {
+          route: "q",
+          // sender_id: "TXTIND",
+          message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
+          language: "english",
+          numbers: phoneNumber,
+        }, {
+          headers: { 'Authorization': FAST2SMS_API_KEY }
+        });
+        console.log("Fast2SMS Response:", response.data);
+
+    res.json({ message: "OTP sent successfully" });
+
+  } catch (error) {
+    console.error("Signup OTP error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/verify-signup-otp", async (req, res) => {
+  const { phoneNumber, otp, name, communityId, currentLatitude, currentLongitude } = req.body;
+
+  try {
+    const result = await dynamodb.query({
+      TableName: "OTPVerification",
+      KeyConditionExpression: "phoneNumber = :phoneNumber",
+      ExpressionAttributeValues: { ":phoneNumber": phoneNumber },
+    }).promise();
+
+    if (result.Items.length === 0 || result.Items[0].otp !== otp || new Date(result.Items[0].expiryTime) < new Date()) {
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
+    // Delete verified OTP
+    await dynamodb.delete({ TableName: "OTPVerification", Key: { phoneNumber } }).promise();
+
+    // Create owner record
     const security = {
       id: `sec-${uuidv4()}`,
       communityId,
@@ -54,14 +115,15 @@ router.post('/signup', async (req, res) => {
       currentLongitude,
       createdAt: new Date().toISOString()
     };
-
+    
     await dynamodb.put({
       TableName: 'Securities',
       Item: security
     }).promise();
 
-    res.status(201).json(security);
+    res.status(201).json({ message: "Signup successful", security });
   } catch (error) {
+    console.error("Verify signup OTP error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -84,13 +146,150 @@ router.post('/login', async (req, res) => {
       return res.status(404).json({ error: 'Security not found' });
     }
 
-    res.json(result.Items[0]);
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiryTime = new Date(Date.now() + 5 * 60000); // 5 minutes expiry
+
+    // Delete any existing OTP for this phone number
+    await dynamodb.delete({
+      TableName: "OTPVerification",
+      Key: { phoneNumber }
+    }).promise();
+    
+    // Store OTP in DynamoDB
+    await dynamodb.put({
+      TableName: "OTPVerification",
+      Item: {
+        phoneNumber,
+        otp,
+        expiryTime: expiryTime.toISOString(),
+        verified: false,
+        createdAt: new Date().toISOString()
+      }
+    }).promise();
+
+    const response = await axios.post(FAST2SMS_URL, {
+          route: "q",
+          message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
+          language: "english",
+          numbers: phoneNumber,
+        }, {
+          headers: {
+            'Authorization': FAST2SMS_API_KEY
+          }
+        });
+    
+        if (response.data.return === true) {
+          res.json({ 
+            message: "OTP sent successfully",
+            userId: result.Items[0].id,
+            communityId: result.Items[0].communityId
+          });
+        } else {
+          throw new Error("Failed to send OTP");
+        }
   } catch (error) {
+    console.error("Error in login:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ... (your existing code)
+router.post("/resend-otp", async (req, res) => {
+  const { phoneNumber, isSignup } = req.body;
+
+  try {
+    // Generate OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiryTime = new Date(Date.now() + 5 * 60000).toISOString();
+
+    // Store OTP in DynamoDB
+    await dynamodb.put({
+      TableName: "OTPVerification",
+      Item: { phoneNumber, otp, expiryTime, verified: false, createdAt: new Date().toISOString() },
+    }).promise();
+
+    // Send OTP via Fast2SMS
+    await axios.post(FAST2SMS_URL, {
+      route: "v3",
+      sender_id: "TXTIND",
+      message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
+      language: "english",
+      numbers: phoneNumber,
+    }, { headers: { 'Authorization': FAST2SMS_API_KEY } });
+
+    res.json({ message: "OTP resent successfully" });
+  } catch (error) {
+    console.error("Error resending OTP:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/verify-otp", async (req, res) => {
+  const { phoneNumber, otp } = req.body;
+
+  try {
+    // Get stored OTP details
+    const result = await dynamodb.query({
+      TableName: "OTPVerification",
+      KeyConditionExpression: "phoneNumber = :phoneNumber",
+      FilterExpression: "verified = :verified",
+      ExpressionAttributeValues: {
+        ":phoneNumber": phoneNumber,
+        ":verified": false
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    }).promise();
+
+    if (result.Items.length === 0) {
+      return res.status(400).json({ error: "No OTP found or already verified" });
+    }
+
+    const otpRecord = result.Items[0];
+
+    // Check if OTP has expired
+    if (new Date(otpRecord.expiryTime) < new Date()) {
+      // Delete expired OTP
+      await dynamodb.delete({
+        TableName: "OTPVerification",
+        Key: { phoneNumber }
+      }).promise();
+      return res.status(400).json({ error: "OTP has expired" });
+    }
+
+    // Verify OTP
+    if (otpRecord.otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // Delete verified OTP
+    await dynamodb.delete({
+      TableName: "OTPVerification",
+      Key: { phoneNumber }
+    }).promise();
+
+    // Get user details
+    const userResult = await dynamodb.query({
+      TableName: "Securities",
+      IndexName: "PhoneNumberIndex",
+      KeyConditionExpression: "phoneNumber = :phoneNumber",
+      ExpressionAttributeValues: {
+        ":phoneNumber": phoneNumber
+      }
+    }).promise();
+
+    if (userResult.Items.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({
+      message: "OTP verified successfully",
+      user: userResult.Items[0]
+    });
+  } catch (error) {
+    console.error("Error verifying OTP:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.put('/location/:securityId', async (req, res) => {
   const { securityId } = req.params;

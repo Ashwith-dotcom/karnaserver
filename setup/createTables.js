@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { createTables } = require('./config/tables');
+const { createTables } = require('./tables');
 
 async function init() {
   try {

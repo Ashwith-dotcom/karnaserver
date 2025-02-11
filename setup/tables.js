@@ -1,4 +1,4 @@
-const { dynamodbAdmin } = require('./db');
+const { dynamodbAdmin } = require('../config/db');
 
 const tables = {
   Communities: {
@@ -180,6 +180,25 @@ const tables = {
       }
     ],
     ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 }
+  },
+  OTPVerification: {
+    TableName: 'OTPVerification',
+  KeySchema: [
+    { 
+      AttributeName: 'phoneNumber',
+      KeyType: 'HASH'  // Partition key
+    }
+  ],
+  AttributeDefinitions: [
+    { 
+      AttributeName: 'phoneNumber',
+      AttributeType: 'S'  // String
+    }
+  ],
+  ProvisionedThroughput: {
+    ReadCapacityUnits: 5,
+    WriteCapacityUnits: 5
+  }
   }
 };
 
