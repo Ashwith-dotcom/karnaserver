@@ -8,7 +8,6 @@ const axios = require('axios');
 const FAST2SMS_API_KEY = 'SDWawcVxsM4Bjdy5pYE1l7gLeAT8JCnNFt2ihKbGRQ6UqofXHzv8DhpfJXyxIintbEWB6QkowAz9CYgK';
 const FAST2SMS_URL = 'https://www.fast2sms.com/dev/bulkV2';
 
-
 const mqttClient = mqtt.connect({
   host: '65f02f33157749ed9e713a070f930f6e.s1.eu.hivemq.cloud', 
   port: 8883, 
@@ -70,10 +69,9 @@ router.post('/signup', async (req, res) => {
     }).promise();
 
     const response = await axios.post(FAST2SMS_URL, {
-          route: "q",
+          route: "otp",
           // sender_id: "TXTIND",
-          message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
-          language: "english",
+          variables_values: `${otp}`,
           numbers: phoneNumber,
         }, {
           headers: { 'Authorization': FAST2SMS_API_KEY }
@@ -168,9 +166,8 @@ router.post('/login', async (req, res) => {
     }).promise();
 
     const response = await axios.post(FAST2SMS_URL, {
-          route: "q",
-          message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
-          language: "english",
+          route: "otp",
+          variables_values: `${otp}`,
           numbers: phoneNumber,
         }, {
           headers: {

@@ -23,11 +23,12 @@ app.use(express.json());
 const dashboardRoutes = require('./routes/dashboard');
 const securityRoutes = require("./routes/security")
 const ownerRoutes = require("./routes/owner")
-
+const voiceCommandController = require('./controllers/voiceCommandController')
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/security', securityRoutes)
 app.use('/api/owner', ownerRoutes)
+app.use('/api' , voiceCommandController)
 
 
 const PORT = process.env.PORT;

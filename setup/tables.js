@@ -192,7 +192,7 @@ const tables = {
   AttributeDefinitions: [
     { 
       AttributeName: 'phoneNumber',
-      AttributeType: 'S'  // String
+      AttributeType: 'S' 
     }
   ],
   ProvisionedThroughput: {

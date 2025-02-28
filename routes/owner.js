@@ -71,7 +71,7 @@ router.post("/signup", async (req, res) => {
     }
 
     // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
     const expiryTime = new Date(Date.now() + 5 * 60000).toISOString(); // 5 minutes expiry
 
     // Store OTP in DynamoDB
@@ -82,10 +82,11 @@ router.post("/signup", async (req, res) => {
 
     // Send OTP via Fast2SMS
     const response = await axios.post(FAST2SMS_URL, {
-      route: "q",
+      route: "otp",
       // sender_id: "TXTIND",
-      message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
-      language: "english",
+      // message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
+      variables_values: `${otp}`,
+      // language: "english",
       numbers: phoneNumber,
     }, {
       headers: { 'Authorization': FAST2SMS_API_KEY }
@@ -152,7 +153,7 @@ router.post("/login", async (req, res) => {
     }
 
     // Generate 6 digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
     const expiryTime = new Date(Date.now() + 5 * 60000); // 5 minutes expiry
 
     // Delete any existing OTP for this phone number
@@ -175,9 +176,11 @@ router.post("/login", async (req, res) => {
 
     // Send OTP via Fast2SMS
     const response = await axios.post(FAST2SMS_URL, {
-      route: "q",
-      message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
-      language: "english",
+      route: "otp",
+      // sender_id: "TXTIND",
+      // message: `Your OTP is: ${otp}. Valid for 5 minutes.`,
+      variables_values: `${otp}`,
+      // language: "english",
       numbers: phoneNumber,
     }, {
       headers: {
@@ -206,7 +209,7 @@ router.post("/resend-otp", async (req, res) => {
 
   try {
     // Generate OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
     const expiryTime = new Date(Date.now() + 5 * 60000).toISOString();
 
     // Store OTP in DynamoDB

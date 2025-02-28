@@ -47,7 +47,7 @@ router.get('/stats', async (req, res) => {
       totalRobots,
       activeRobots,
       nonActiveRobots: totalRobots - activeRobots,
-      statusBreakdown: robotStatusCount, // Shows count for each status (active, charging, maintenance, etc.)
+      statusBreakdown: robotStatusCount, 
       totalTickets: ticketsResponse.Count,
       totalDistance: totalDistance
     });
